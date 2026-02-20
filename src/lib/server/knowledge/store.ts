@@ -21,11 +21,17 @@ export interface DocumentMatch {
 	similarity: number;
 }
 
+const VALID_COLLECTIONS = new Set(['resume', 'projects', 'skills', 'background']);
+
 export async function searchDocuments(
 	query: string,
 	collection: string = 'all',
 	count: number = 5
 ): Promise<DocumentMatch[]> {
+	const normalized = collection.toLowerCase().trim();
+	const filterCollection =
+		normalized === 'all' || !VALID_COLLECTIONS.has(normalized) ? null : normalized;
+
 	const { embedding } = await embed({
 		model: embeddingModel(),
 		value: query
@@ -34,7 +40,7 @@ export async function searchDocuments(
 	const { data, error } = await getClient().rpc('match_documents', {
 		query_embedding: embedding,
 		match_count: count,
-		filter_collection: collection === 'all' ? null : collection
+		filter_collection: filterCollection
 	});
 
 	if (error) throw new Error(`Supabase search failed: ${error.message}`);

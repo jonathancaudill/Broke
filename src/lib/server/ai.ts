@@ -3,7 +3,7 @@ import { env } from '$env/dynamic/private';
 
 export function model() {
 	const provider = createOpenAI({ apiKey: env.OPENAI_API_KEY });
-	return provider(env.OPENAI_MODEL || 'gpt-4o');
+	return provider.chat(env.OPENAI_MODEL || 'gpt-4o');
 }
 
 export function embeddingModel() {

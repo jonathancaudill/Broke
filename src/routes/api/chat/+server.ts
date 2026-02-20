@@ -1,58 +1,131 @@
 import type { RequestHandler } from './$types';
-import { createOrchestratorStream } from '$lib/server/orchestrator';
+import { createSingleStep } from '$lib/server/orchestrator';
 import type { CoreMessage } from 'ai';
+
+const MAX_STEPS = 12;
 
 export const POST: RequestHandler = async ({ request }) => {
 	const { messages } = (await request.json()) as { messages: CoreMessage[] };
+	console.log(
+		`[api/chat] received ${messages.length} messages, last: "${messages[messages.length - 1]?.content?.toString().slice(0, 80)}"`
+	);
 
-	const result = createOrchestratorStream(messages);
 	const encoder = new TextEncoder();
+	const currentMessages: CoreMessage[] = [...messages];
 
 	const stream = new ReadableStream({
 		async start(controller) {
-			try {
-				for await (const part of result.fullStream) {
-					let event: Record<string, unknown> | null = null;
+			const send = (event: Record<string, unknown>) =>
+				controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
 
-					switch (part.type) {
-						case 'text-delta':
-							event = { type: 'text-delta', textDelta: part.textDelta };
-							break;
-						case 'tool-call':
-							event = {
+			try {
+				for (let step = 0; step < MAX_STEPS; step++) {
+					console.log(`[api/chat] step ${step + 1}`);
+					const result = createSingleStep(currentMessages);
+
+					let stepText = '';
+					const toolCalls: Array<{
+						toolCallId: string;
+						toolName: string;
+						input: unknown;
+					}> = [];
+					const toolResults: Array<{
+						toolCallId: string;
+						toolName: string;
+						output: unknown;
+					}> = [];
+
+					for await (const part of result.fullStream) {
+						if (part.type === 'text-delta') {
+							stepText += part.text;
+							send({ type: 'text-delta', textDelta: part.text });
+						} else if (part.type === 'tool-call') {
+							console.log(
+								`[api/chat]   tool-call: ${part.toolName}(${JSON.stringify(part.input).slice(0, 200)})`
+							);
+							toolCalls.push({
+								toolCallId: part.toolCallId,
+								toolName: part.toolName,
+								input: part.input
+							});
+							send({
 								type: 'tool-call',
 								toolCallId: part.toolCallId,
 								toolName: part.toolName,
-								args: part.args
+								args: part.input
+							});
+						} else if (part.type === 'tool-result') {
+							const p = part as unknown as {
+								toolCallId: string;
+								toolName: string;
+								output: unknown;
 							};
-							break;
-						case 'tool-result':
-							event = {
+							const outputStr =
+								typeof p.output === 'string'
+									? p.output
+									: JSON.stringify(p.output);
+							console.log(
+								`[api/chat]   tool-result: ${p.toolName} -> ${outputStr.slice(0, 200)}`
+							);
+							toolResults.push({
+								toolCallId: p.toolCallId,
+								toolName: p.toolName,
+								output: p.output
+							});
+							send({
 								type: 'tool-result',
-								toolCallId: part.toolCallId,
-								toolName: part.toolName,
-								result:
-									typeof part.result === 'string'
-										? part.result.slice(0, 1000)
-										: JSON.stringify(part.result).slice(0, 1000)
-							};
-							break;
-						case 'step-finish':
-							event = { type: 'step-finish' };
-							break;
-						case 'finish':
-							event = { type: 'finish' };
-							break;
+								toolCallId: p.toolCallId,
+								toolName: p.toolName,
+								result: outputStr.slice(0, 1000)
+							});
+						}
 					}
 
-					if (event) {
-						controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+					if (toolCalls.length === 0) {
+						console.log(
+							`[api/chat] step ${step + 1} done — no tool calls, final answer (${stepText.length} chars)`
+						);
+						break;
 					}
+
+					console.log(
+						`[api/chat] step ${step + 1} done — ${toolCalls.length} tool call(s), continuing`
+					);
+
+					const assistantContent: Array<Record<string, unknown>> = [];
+					if (stepText) {
+						assistantContent.push({ type: 'text', text: stepText });
+					}
+					for (const tc of toolCalls) {
+						assistantContent.push({
+							type: 'tool-call',
+							toolCallId: tc.toolCallId,
+							toolName: tc.toolName,
+							input: tc.input
+						});
+					}
+					currentMessages.push({
+						role: 'assistant',
+						content: assistantContent
+					} as CoreMessage);
+
+					const toolContent = toolResults.map((tr) => ({
+						type: 'tool-result' as const,
+						toolCallId: tr.toolCallId,
+						toolName: tr.toolName,
+						output: {
+							type: 'text' as const,
+							value: typeof tr.output === 'string' ? tr.output : JSON.stringify(tr.output)
+						}
+					}));
+					currentMessages.push({
+						role: 'tool',
+						content: toolContent
+					} as CoreMessage);
 				}
 			} catch (err) {
-				controller.enqueue(
-					encoder.encode(`data: ${JSON.stringify({ type: 'error', message: String(err) })}\n\n`)
-				);
+				console.error(`[api/chat] stream error:`, err);
+				send({ type: 'error', message: String(err) });
 			} finally {
 				controller.enqueue(encoder.encode('data: [DONE]\n\n'));
 				controller.close();

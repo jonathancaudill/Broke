@@ -1,5 +1,4 @@
-import { tool } from 'ai';
-import { z } from 'zod';
+import { tool, jsonSchema } from 'ai';
 import { searchDocuments } from '$lib/server/knowledge/store';
 
 export const ragQueryTool = tool({
@@ -8,11 +7,20 @@ export const ragQueryTool = tool({
 		"his resume, projects, skills, and background. " +
 		"Specify a collection to narrow results: 'resume', 'projects', " +
 		"'skills', or 'background'. Use 'all' to search everything.",
-	parameters: z.object({
-		query: z.string().describe('The search query describing what information you need.'),
-		collection: z
-			.enum(['resume', 'projects', 'skills', 'background', 'all'])
-			.describe('Which knowledge collection to search.')
+	inputSchema: jsonSchema<{ query: string; collection: string }>({
+		type: 'object',
+		properties: {
+			query: {
+				type: 'string',
+				description: 'The search query describing what information you need.'
+			},
+			collection: {
+				type: 'string',
+				enum: ['resume', 'projects', 'skills', 'background', 'all'],
+				description: 'Which knowledge collection to search.'
+			}
+		},
+		required: ['query', 'collection']
 	}),
 	execute: async ({ query, collection }) => {
 		const results = await searchDocuments(query, collection);

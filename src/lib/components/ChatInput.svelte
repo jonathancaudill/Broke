@@ -45,7 +45,7 @@
 		rows="1"
 		{disabled}
 	></textarea>
-	<button onclick={submit} disabled={disabled || !value.trim()} class="send-button">
+	<button onclick={submit} disabled={disabled || !value.trim()} class="send-button" aria-label="Send message">
 		<svg viewBox="0 0 24 24" width="18" height="18" fill="none">
 			<circle cx="12" cy="12" r="11" fill="currentColor" />
 			<path d="M12 16V8M8 12l4-4 4 4" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />

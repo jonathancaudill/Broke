@@ -50,7 +50,7 @@
 		return name;
 	}
 
-	async function parseSSEStream(response: Response, msg: Message) {
+	async function parseSSEStream(response: Response, msgIndex: number) {
 		const reader = response.body!.getReader();
 		const decoder = new TextDecoder();
 		let buffer = '';
@@ -71,6 +71,7 @@
 
 					try {
 						const event = JSON.parse(data);
+						const msg = messages[msgIndex];
 
 						if (event.type === 'text-delta') {
 							msg.content += event.textDelta;
@@ -98,8 +99,8 @@
 							msg.content += `\n\nerror: ${event.message}`;
 							streamStatus = null;
 						}
-					} catch {
-						/* skip malformed events */
+					} catch (e) {
+						console.error('[sse] failed to parse event:', e, part);
 					}
 				}
 			}
@@ -114,14 +115,14 @@
 			type: 'chat'
 		});
 
-		const assistantMsg: Message = {
+		messages.push({
 			id: crypto.randomUUID(),
 			role: 'assistant',
 			content: '',
 			type: 'chat',
 			toolCalls: []
-		};
-		messages.push(assistantMsg);
+		});
+		const msgIndex = messages.length - 1;
 		isLoading = true;
 		streamStatus = null;
 		scrollToBottom();
@@ -139,13 +140,13 @@
 			});
 
 			if (!response.ok) {
-				assistantMsg.content = `error: ${response.status} ${response.statusText}`;
+				messages[msgIndex].content = `error: ${response.status} ${response.statusText}`;
 				return;
 			}
 
-			await parseSSEStream(response, assistantMsg);
+			await parseSSEStream(response, msgIndex);
 		} catch (err) {
-			assistantMsg.content = `error: ${err}`;
+			messages[msgIndex].content = `error: ${err}`;
 		} finally {
 			isLoading = false;
 			streamStatus = null;
@@ -154,14 +155,14 @@
 	}
 
 	async function streamFromEndpoint(endpoint: string, body: Record<string, unknown>) {
-		const assistantMsg: Message = {
+		messages.push({
 			id: crypto.randomUUID(),
 			role: 'assistant',
 			content: '',
 			type: 'chat',
 			toolCalls: []
-		};
-		messages.push(assistantMsg);
+		});
+		const msgIndex = messages.length - 1;
 		isLoading = true;
 		streamStatus = null;
 		scrollToBottom();
@@ -174,13 +175,13 @@
 			});
 
 			if (!response.ok) {
-				assistantMsg.content = `error: ${response.status} ${response.statusText}`;
+				messages[msgIndex].content = `error: ${response.status} ${response.statusText}`;
 				return;
 			}
 
-			await parseSSEStream(response, assistantMsg);
+			await parseSSEStream(response, msgIndex);
 		} catch (err) {
-			assistantMsg.content = `error: ${err}`;
+			messages[msgIndex].content = `error: ${err}`;
 		} finally {
 			isLoading = false;
 			streamStatus = null;
@@ -264,15 +265,16 @@
 
 		if (low.startsWith('/thinking')) {
 			const level = text.slice(9).trim().toLowerCase();
+			const validLevels = ['minimal', 'low', 'medium', 'high'];
 			if (!level) {
 				addSystemMessage(
-					`reasoning effort: ${reasoningEffort || 'default'}\noptions: low, medium, high`
+					`reasoning effort: ${reasoningEffort || 'default'}\noptions: ${validLevels.join(', ')}`
 				);
-			} else if (['low', 'medium', 'high'].includes(level)) {
+			} else if (validLevels.includes(level)) {
 				reasoningEffort = level;
 				addSystemMessage(`reasoning effort → ${level}`);
 			} else {
-				addSystemMessage('invalid. choose from: low, medium, high');
+				addSystemMessage(`invalid. choose from: ${validLevels.join(', ')}`);
 			}
 			return;
 		}

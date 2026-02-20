@@ -1,11 +1,20 @@
-import { tool } from 'ai';
-import { z } from 'zod';
+import { tool, jsonSchema } from 'ai';
 
 export const checkAvailabilityTool = tool({
 	description: "Check Jonathan's calendar availability for a given date range. Returns a list of open time slots.",
-	parameters: z.object({
-		start_date: z.string().describe('Start of the date range (ISO 8601, e.g. 2026-02-20).'),
-		end_date: z.string().describe('End of the date range (ISO 8601, e.g. 2026-02-27).')
+	inputSchema: jsonSchema<{ start_date: string; end_date: string }>({
+		type: 'object',
+		properties: {
+			start_date: {
+				type: 'string',
+				description: 'Start of the date range (ISO 8601, e.g. 2026-02-20).'
+			},
+			end_date: {
+				type: 'string',
+				description: 'End of the date range (ISO 8601, e.g. 2026-02-27).'
+			}
+		},
+		required: ['start_date', 'end_date']
 	}),
 	execute: async ({ start_date, end_date }) => {
 		return (
@@ -21,11 +30,27 @@ export const checkAvailabilityTool = tool({
 
 export const bookMeetingTool = tool({
 	description: 'Book a meeting with Jonathan at a specific time. Requires a time slot, the requester\'s name, and their email.',
-	parameters: z.object({
-		datetime: z.string().describe('Requested meeting time (ISO 8601, e.g. 2026-02-24T14:00:00).'),
-		name: z.string().describe('Name of the person requesting the meeting.'),
-		email: z.string().describe('Contact email for the meeting requester.'),
-		topic: z.string().optional().describe('Brief topic or agenda for the meeting.')
+	inputSchema: jsonSchema<{ datetime: string; name: string; email: string; topic?: string }>({
+		type: 'object',
+		properties: {
+			datetime: {
+				type: 'string',
+				description: 'Requested meeting time (ISO 8601, e.g. 2026-02-24T14:00:00).'
+			},
+			name: {
+				type: 'string',
+				description: 'Name of the person requesting the meeting.'
+			},
+			email: {
+				type: 'string',
+				description: 'Contact email for the meeting requester.'
+			},
+			topic: {
+				type: 'string',
+				description: 'Brief topic or agenda for the meeting.'
+			}
+		},
+		required: ['datetime', 'name', 'email']
 	}),
 	execute: async ({ datetime, name, email, topic }) => {
 		return (
