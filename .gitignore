@@ -1,8 +1,15 @@
+node_modules/
+.svelte-kit/
+build/
+.vercel/
+.env
+.env.*
+!.env.example
+
+# Python (legacy, kept for reference)
 __pycache__/
 *.pyc
 *.egg-info/
 dist/
-build/
-.env
-chroma_data/
 .venv/
+chroma_data/

@@ -1,0 +1,31 @@
+{
+  "name": "broke",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "embed": "tsx scripts/embed-knowledge.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/openai": "^3.0.30",
+    "@supabase/supabase-js": "^2.97.0",
+    "ai": "^6.0.96",
+    "marked": "^17.0.3",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-vercel": "^6.3.2",
+    "@sveltejs/kit": "^2.53.0",
+    "@sveltejs/vite-plugin-svelte": "^6.2.4",
+    "dotenv": "^17.3.1",
+    "svelte": "^5.53.0",
+    "svelte-check": "^4.4.3",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1"
+  }
+}

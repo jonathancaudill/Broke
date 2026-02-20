@@ -1,0 +1,410 @@
+:root {
+	--bg: #000000;
+	--header-bg: #1c1c1e;
+	--bubble-user: #007aff;
+	--bubble-assistant: #26262a;
+	--input-bg: #1c1c1e;
+	--input-field: #2c2c2e;
+	--text: #ffffff;
+	--text-secondary: #8e8e93;
+	--debug-color: #ff9500;
+	--accent: #bf5af2;
+	--font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+	--mono: 'SF Mono', 'Fira Code', 'Menlo', 'Consolas', monospace;
+}
+
+* {
+	margin: 0;
+	padding: 0;
+	box-sizing: border-box;
+}
+
+html,
+body {
+	height: 100%;
+	background: var(--bg);
+	color: var(--text);
+	font-family: var(--font);
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Layout ── */
+.chat-app {
+	display: flex;
+	flex-direction: column;
+	height: 100dvh;
+	max-width: 768px;
+	margin: 0 auto;
+}
+
+.chat-header {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 14px 16px;
+	background: var(--header-bg);
+	border-bottom: 0.5px solid rgba(255, 255, 255, 0.08);
+	gap: 8px;
+	flex-shrink: 0;
+}
+
+.chat-header h1 {
+	font-size: 17px;
+	font-weight: 600;
+	color: var(--accent);
+	letter-spacing: -0.02em;
+}
+
+.debug-badge {
+	font-size: 9px;
+	background: var(--debug-color);
+	color: #000;
+	padding: 2px 6px;
+	border-radius: 4px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+/* ── Messages area ── */
+.chat-messages {
+	flex: 1;
+	overflow-y: auto;
+	padding: 16px;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	-webkit-overflow-scrolling: touch;
+}
+
+.empty-state {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	color: var(--text-secondary);
+	text-align: center;
+	padding: 24px;
+}
+
+.empty-state p {
+	font-size: 17px;
+}
+
+.empty-state .hint {
+	font-size: 13px;
+	opacity: 0.5;
+}
+
+/* ── Bubbles ── */
+.message-row {
+	display: flex;
+	max-width: 100%;
+	animation: fadeIn 0.15s ease-out;
+}
+
+.message-row.user {
+	justify-content: flex-end;
+}
+
+.bubble {
+	max-width: 75%;
+	padding: 8px 14px;
+	font-size: 16px;
+	line-height: 1.4;
+	word-wrap: break-word;
+	overflow-wrap: break-word;
+}
+
+.bubble-user {
+	background: var(--bubble-user);
+	color: white;
+	border-radius: 18px 18px 4px 18px;
+}
+
+.bubble-assistant {
+	background: var(--bubble-assistant);
+	color: var(--text);
+	border-radius: 18px 18px 18px 4px;
+}
+
+.command-bubble {
+	background: transparent;
+	color: var(--text-secondary);
+	font-family: var(--mono);
+	font-size: 14px;
+	padding: 4px 0;
+	max-width: 100%;
+}
+
+/* ── System messages ── */
+.system-message {
+	padding: 6px 16px;
+	animation: fadeIn 0.15s ease-out;
+}
+
+.system-message pre {
+	font-family: var(--mono);
+	font-size: 13px;
+	color: var(--text-secondary);
+	white-space: pre-wrap;
+	line-height: 1.5;
+}
+
+/* ── Markdown inside assistant bubbles ── */
+.bubble-assistant :global(p) {
+	margin: 0 0 8px;
+}
+
+.bubble-assistant :global(p:last-child) {
+	margin-bottom: 0;
+}
+
+.bubble-assistant :global(code) {
+	background: rgba(255, 255, 255, 0.1);
+	padding: 1px 5px;
+	border-radius: 4px;
+	font-size: 14px;
+	font-family: var(--mono);
+}
+
+.bubble-assistant :global(pre) {
+	background: rgba(0, 0, 0, 0.35);
+	padding: 10px 12px;
+	border-radius: 8px;
+	overflow-x: auto;
+	margin: 8px 0;
+}
+
+.bubble-assistant :global(pre code) {
+	background: none;
+	padding: 0;
+	font-size: 13px;
+}
+
+.bubble-assistant :global(ul),
+.bubble-assistant :global(ol) {
+	padding-left: 20px;
+	margin: 4px 0;
+}
+
+.bubble-assistant :global(li) {
+	margin: 2px 0;
+}
+
+.bubble-assistant :global(h1),
+.bubble-assistant :global(h2),
+.bubble-assistant :global(h3) {
+	font-size: 15px;
+	font-weight: 600;
+	margin: 8px 0 4px;
+}
+
+.bubble-assistant :global(a) {
+	color: #64b5f6;
+	text-decoration: none;
+}
+
+.bubble-assistant :global(strong) {
+	font-weight: 600;
+}
+
+.bubble-assistant :global(em) {
+	font-style: italic;
+}
+
+.bubble-assistant :global(hr) {
+	border: none;
+	border-top: 0.5px solid rgba(255, 255, 255, 0.15);
+	margin: 8px 0;
+}
+
+/* ── Debug tool calls ── */
+.debug-tools {
+	padding: 2px 16px 4px;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.tool-call {
+	font-size: 12px;
+	color: var(--debug-color);
+	font-family: var(--mono);
+	display: flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.tool-icon {
+	font-size: 11px;
+}
+
+.tool-call details {
+	margin-left: 4px;
+}
+
+.tool-call summary {
+	cursor: pointer;
+	opacity: 0.7;
+}
+
+.tool-call pre {
+	font-size: 11px;
+	color: var(--text-secondary);
+	max-height: 120px;
+	overflow: auto;
+	white-space: pre-wrap;
+	margin-top: 4px;
+	padding: 4px 8px;
+	background: rgba(255, 255, 255, 0.04);
+	border-radius: 4px;
+}
+
+/* ── Status indicator ── */
+.stream-status {
+	font-size: 13px;
+	color: var(--text-secondary);
+	padding: 4px 16px;
+	font-style: italic;
+	animation: fadeIn 0.2s ease-out;
+}
+
+/* ── Typing indicator ── */
+.typing-indicator-wrap {
+	display: flex;
+	animation: fadeIn 0.2s ease-out;
+}
+
+.typing-indicator {
+	background: var(--bubble-assistant);
+	border-radius: 18px 18px 18px 4px;
+	padding: 14px 18px;
+	display: flex;
+	gap: 5px;
+	align-items: center;
+}
+
+.typing-indicator span {
+	width: 8px;
+	height: 8px;
+	background: var(--text-secondary);
+	border-radius: 50%;
+	animation: typing 1.4s infinite;
+}
+
+.typing-indicator span:nth-child(2) {
+	animation-delay: 0.2s;
+}
+
+.typing-indicator span:nth-child(3) {
+	animation-delay: 0.4s;
+}
+
+@keyframes typing {
+	0%,
+	60%,
+	100% {
+		opacity: 0.3;
+		transform: translateY(0);
+	}
+	30% {
+		opacity: 1;
+		transform: translateY(-4px);
+	}
+}
+
+@keyframes fadeIn {
+	from {
+		opacity: 0;
+		transform: translateY(4px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+/* ── Input bar ── */
+.input-bar {
+	display: flex;
+	align-items: flex-end;
+	gap: 8px;
+	padding: 8px 16px calc(env(safe-area-inset-bottom, 8px) + 8px);
+	background: var(--input-bg);
+	border-top: 0.5px solid rgba(255, 255, 255, 0.08);
+	flex-shrink: 0;
+}
+
+.input-bar textarea {
+	flex: 1;
+	background: var(--input-field);
+	border: none;
+	border-radius: 20px;
+	padding: 10px 16px;
+	color: var(--text);
+	font-size: 16px;
+	font-family: var(--font);
+	resize: none;
+	outline: none;
+	min-height: 40px;
+	max-height: 120px;
+	line-height: 1.35;
+}
+
+.input-bar textarea::placeholder {
+	color: var(--text-secondary);
+}
+
+.send-button {
+	width: 34px;
+	height: 34px;
+	border-radius: 50%;
+	border: none;
+	background: var(--bubble-user);
+	color: white;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	cursor: pointer;
+	flex-shrink: 0;
+	transition: opacity 0.15s;
+	padding: 0;
+}
+
+.send-button:disabled {
+	opacity: 0.25;
+	cursor: default;
+}
+
+.send-button:hover:not(:disabled) {
+	opacity: 0.85;
+}
+
+/* ── Scrollbar ── */
+.chat-messages::-webkit-scrollbar {
+	width: 5px;
+}
+
+.chat-messages::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+.chat-messages::-webkit-scrollbar-thumb {
+	background: rgba(255, 255, 255, 0.15);
+	border-radius: 3px;
+}
+
+/* ── Responsive ── */
+@media (max-width: 480px) {
+	.bubble {
+		max-width: 85%;
+	}
+
+	.chat-messages {
+		padding: 12px;
+	}
+}
