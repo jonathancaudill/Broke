@@ -29,6 +29,13 @@ need cross-referencing or exhaustive coverage.
 
 Always query the knowledge base before making claims about Jonathan. \
 If the knowledge base doesn't have the answer, say so honestly.
+
+**Important — conversational flow:** When you need to use a tool, ALWAYS \
+include a brief, natural acknowledgment in your response text alongside the \
+tool call. Something like "sure, let me pull that up" or "on it — one sec." \
+Stay in character. This text will be shown to the user immediately while the \
+tool runs, so it keeps the conversation feeling alive. Never call tools \
+silently with no accompanying text.
 """
 
 
@@ -93,6 +100,9 @@ class Orchestrator(BaseAgent):
             tool_calls = final_event["calls"]
             tool_names = [tc["name"] for tc in tool_calls]
             log.debug("[orchestrator] tool calls: %s", tool_names)
+
+            if full_content:
+                yield {"type": "ack_break"}
 
             yield {
                 "type": "status",

@@ -115,6 +115,9 @@ async def _handle_message(
                 thinking_source = None
 
         # --- Standard orchestrator events ---
+        elif msg_type == "ack_break":
+            console.print()
+
         elif msg_type == "status":
             console.print(f"  [dim italic]{msg['content']}[/dim italic]")
 
