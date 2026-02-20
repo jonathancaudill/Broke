@@ -6,12 +6,14 @@ import asyncio
 import json
 import logging
 import sys
+import time
 
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
 
+from broke import prompts
 from broke.agents.culture import CultureFitAgent
 from broke.agents.experience import ExperienceAgent
 from broke.agents.orchestrator import Orchestrator
@@ -55,8 +57,17 @@ def _print_banner() -> None:
     )
     console.print(Panel(banner, border_style="magenta", padding=(0, 2)))
     console.print(
-        "[dim]Type a question, /debug to toggle debug mode, "
-        "/clear to reset conversation, /quit to exit.[/dim]\n"
+        "[dim]Commands:\n"
+        "  /ask <agent> <query>  Run a single agent in isolation\n"
+        "  /chat <query>         Talk to the orchestrator directly (no tools/agents)\n"
+        "  /route <query>        Show routing decision only\n"
+        "  /reload               Hot-reload all prompts from disk\n"
+        "  /prompt [agent]       Show system prompt (all or one)\n"
+        "  /thinking [level]     Set reasoning effort: minimal / low / medium / high\n"
+        "  /agents               List available agents\n"
+        "  /debug                Toggle debug mode\n"
+        "  /clear                Reset conversation\n"
+        "  /quit                 Exit[/dim]\n"
     )
 
 
@@ -81,7 +92,7 @@ async def _handle_message(
 
         # Close an open thinking block when a non-thinking event arrives
         if in_thinking and msg_type not in (
-            "thinking", "thinking_end", "agent_thinking", "agent_thinking_end",
+            "thinking", "thinking_end", "agent_thinking", "agent_thinking_end", "token",
         ):
             console.print()
             in_thinking = False
@@ -112,10 +123,16 @@ async def _handle_message(
         elif msg_type == "status":
             console.print(f"  [dim italic]{msg['content']}[/dim italic]")
 
+        elif msg_type == "synthesis_start":
+            console.print()
+
+        elif msg_type == "token":
+            console.file.write(msg["content"])
+            console.file.flush()
+
         elif msg_type == "final":
             final_content = msg["content"]
             console.print()
-            console.print(Markdown(final_content))
             if debug and "sources" in msg:
                 sources = ", ".join(msg["sources"])
                 console.print(f"\n  [dim]agents consulted: {sources}[/dim]")
@@ -181,6 +198,110 @@ async def _handle_message(
 # REPL
 # ------------------------------------------------------------------
 
+async def _handle_ask(agent_name: str, query: str, debug: bool) -> None:
+    """Run a single agent in isolation and print its result."""
+    try:
+        agent = registry.get(agent_name)
+    except KeyError:
+        console.print(f"[red]Unknown agent: {agent_name}[/red]")
+        console.print(f"[dim]Available: {', '.join(registry.agent_names)}[/dim]")
+        return
+
+    console.print(f"\n[bold cyan]─── {agent_name} ───[/bold cyan]")
+    t0 = time.perf_counter()
+    try:
+        result = await agent.run(query)
+    except Exception as exc:
+        console.print(f"[red]Error: {exc}[/red]")
+        if debug:
+            console.print_exception()
+        return
+    elapsed = time.perf_counter() - t0
+
+    console.print()
+    console.print(Markdown(result))
+    console.print(f"\n[dim]({elapsed:.1f}s)[/dim]")
+
+
+async def _handle_chat(query: str, debug: bool) -> None:
+    """Send a query straight to the LLM with only the personality prompt — no routing, no tools.
+
+    Streams tokens to the terminal as they arrive.
+    """
+    from broke.llm.provider import stream_completion
+
+    console.print("\n[bold cyan]─── direct chat ───[/bold cyan]\n")
+    t0 = time.perf_counter()
+    collected = ""
+    try:
+        async for token in stream_completion(
+            [
+                {"role": "system", "content": prompts.personality()},
+                {"role": "user", "content": query},
+            ],
+            temperature=0.7,
+        ):
+            console.file.write(token)
+            console.file.flush()
+            collected += token
+    except Exception as exc:
+        console.print(f"\n[red]Error: {exc}[/red]")
+        if debug:
+            console.print_exception()
+        return
+    elapsed = time.perf_counter() - t0
+
+    if not collected:
+        console.print("[dim](empty response)[/dim]")
+    console.print(f"\n\n[dim]({elapsed:.1f}s)[/dim]")
+
+
+async def _handle_route(orchestrator: Orchestrator, query: str, debug: bool) -> None:
+    """Run only the orchestrator routing phase and display the plan."""
+    console.print("\n[bold cyan]─── routing decision ───[/bold cyan]\n")
+    t0 = time.perf_counter()
+    try:
+        plan = await orchestrator._plan_dispatch(query)
+    except Exception as exc:
+        console.print(f"[red]Error: {exc}[/red]")
+        if debug:
+            console.print_exception()
+        return
+    elapsed = time.perf_counter() - t0
+
+    console.print(json.dumps(plan, indent=2))
+    console.print(f"\n[dim]({elapsed:.1f}s)[/dim]")
+
+
+def _handle_prompt_cmd(arg: str) -> None:
+    """Show the effective system prompt for one or all agents."""
+    if arg:
+        try:
+            agent = registry.get(arg)
+        except KeyError:
+            console.print(f"[red]Unknown agent: {arg}[/red]")
+            return
+        if arg == "orchestrator":
+            console.print(f"\n[bold cyan]{arg}[/bold cyan] [dim](routing prompt)[/dim]")
+            console.print(Panel(Orchestrator._build_routing_prompt(), border_style="dim"))
+        else:
+            console.print(f"\n[bold cyan]{arg}[/bold cyan]")
+            console.print(Panel(agent.get_system_prompt(), border_style="dim"))
+    else:
+        for info in registry.list_agents():
+            name = info["name"]
+            agent = registry.get(name)
+            if name == "orchestrator":
+                console.print(f"\n[bold cyan]{name}[/bold cyan] [dim](routing prompt)[/dim]")
+                prompt_text = Orchestrator._build_routing_prompt()
+            else:
+                console.print(f"\n[bold cyan]{name}[/bold cyan]")
+                prompt_text = agent.get_system_prompt()
+            if len(prompt_text) > 500:
+                prompt_text = prompt_text[:500] + "\n..."
+            console.print(Panel(prompt_text, border_style="dim"))
+
+
 async def _repl(orchestrator: Orchestrator, debug: bool) -> None:
     memory = ConversationMemory()
     _print_banner()
@@ -195,20 +316,110 @@ async def _repl(orchestrator: Orchestrator, debug: bool) -> None:
         if not user_input:
             continue
 
-        if user_input.lower() in ("/quit", "/exit", "/q"):
+        low = user_input.lower()
+
+        if low in ("/quit", "/exit", "/q"):
             console.print("[dim]Later.[/dim]")
             break
 
-        if user_input.lower() == "/clear":
+        if low == "/clear":
             memory.clear()
             console.print("[dim]Conversation cleared.[/dim]\n")
             continue
 
-        if user_input.lower() == "/debug":
+        if low == "/debug":
             debug = not debug
             _setup_logging(debug)
             state = "ON" if debug else "OFF"
             console.print(f"[dim]Debug mode: {state}[/dim]\n")
+            continue
+
+        if low == "/reload":
+            loaded = prompts.reload()
+            console.print("[dim]Reloaded prompts:[/dim]")
+            for f in loaded:
+                console.print(f"  [dim]✓ {f}[/dim]")
+            console.print()
+            continue
+
+        if low.startswith("/thinking"):
+            from broke.llm.provider import (
+                VALID_REASONING_EFFORTS,
+                get_reasoning_effort,
+                set_reasoning_effort,
+            )
+            arg = user_input[9:].strip().lower()
+            if not arg:
+                current = get_reasoning_effort() or "default (model decides)"
+                console.print(f"[dim]Reasoning effort: {current}[/dim]")
+                console.print(f"[dim]Options: {', '.join(VALID_REASONING_EFFORTS)}[/dim]\n")
+                continue
+            try:
+                set_reasoning_effort(arg)
+                console.print(f"[dim]Reasoning effort → {arg}[/dim]\n")
+            except ValueError:
+                console.print(f"[red]Invalid. Choose from: {', '.join(VALID_REASONING_EFFORTS)}[/red]\n")
+            continue
+
+        if low == "/agents":
+            for info in registry.list_agents():
+                console.print(
+                    f"  [cyan]{info['name']}[/cyan] — {info['description']}"
+                )
+            console.print()
+            continue
+
+        if low.startswith("/prompt"):
+            arg = user_input[7:].strip()
+            _handle_prompt_cmd(arg)
+            console.print()
+            continue
+
+        if low.startswith("/chat "):
+            query = user_input[6:].strip()
+            if not query:
+                console.print("[dim]Usage: /chat <query>[/dim]")
+                continue
+            try:
+                await _handle_chat(query, debug)
+            except Exception as exc:
+                console.print(f"\n[red]Error: {exc}[/red]")
+                if debug:
+                    console.print_exception()
+            console.print()
+            continue
+
+        if low.startswith("/ask "):
+            parts = user_input[5:].strip().split(None, 1)
+            if len(parts) < 2:
+                console.print("[dim]Usage: /ask <agent> <query>[/dim]")
+                continue
+            agent_name, query = parts
+            try:
+                await _handle_ask(agent_name.lower(), query, debug)
+            except Exception as exc:
+                console.print(f"\n[red]Error: {exc}[/red]")
+                if debug:
+                    console.print_exception()
+            console.print()
+            continue
+
+        if low.startswith("/route "):
+            query = user_input[7:].strip()
+            if not query:
+                console.print("[dim]Usage: /route <query>[/dim]")
+                continue
+            try:
+                await _handle_route(orchestrator, query, debug)
+            except Exception as exc:
+                console.print(f"\n[red]Error: {exc}[/red]")
+                if debug:
+                    console.print_exception()
+            console.print()
+            continue
+
+        if low.startswith("/"):
+            console.print("[dim]Unknown command. Type a question or see commands above.[/dim]\n")
             continue
 
         try:

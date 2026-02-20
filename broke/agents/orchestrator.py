@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
 from typing import Any, AsyncIterator
 
 from broke.agents.base import BaseAgent
@@ -11,21 +10,10 @@ from broke.llm.provider import completion
 
 log = logging.getLogger(__name__)
 
-_PERSONALITY_PATH = Path(__file__).resolve().parents[2] / "PERSONALITY.md"
+# Templates are split from personality so personality can be hot-reloaded.
+# {personality} is injected at call time via _build_routing_prompt / _build_synthesis_prompt.
 
-
-def _load_personality() -> str:
-    try:
-        return _PERSONALITY_PATH.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        log.warning("PERSONALITY.md not found at %s — using fallback.", _PERSONALITY_PATH)
-        return "You are Broke, Jonathan Caudill's portfolio agent. Be sharp, helpful, and genuine."
-
-
-PERSONALITY = _load_personality()
-
-ROUTING_PROMPT = """\
-{personality}
+_ROUTING_INSTRUCTIONS = """\
 
 ---
 
@@ -42,21 +30,20 @@ Available specialists:
 - culture: Work style, personality, values, team fit
 
 Respond with a JSON object (no markdown fences):
-{{
+{
   "acknowledgment": "A brief, natural sentence acknowledging the user's question — stay in character per the personality guide above.",
   "agents": [
-    {{"agent": "<agent_name>", "query": "<reframed query for that specialist>"}}
+    {"agent": "<agent_name>", "query": "<reframed query for that specialist>"}
   ],
   "direct_answer": null
-}}
+}
 
 If you can answer directly without any specialists (e.g. greetings, meta \
 questions about yourself), set "agents" to [] and put your answer in \
 "direct_answer". Keep the personality guide in mind for direct answers too.
-""".format(personality=PERSONALITY)
+"""
 
-SYNTHESIS_PROMPT = """\
-{personality}
+_SYNTHESIS_INSTRUCTIONS = """\
 
 ---
 
@@ -66,14 +53,14 @@ You've just received information from your specialist agents. Synthesize \
 their findings into a single, polished response for the user.
 
 Specialist results:
-{{results}}
+{results}
 
-Original question: {{query}}
+Original question: {query}
 
 Compose a cohesive, engaging response. Don't say "according to the skills \
 agent" — just weave the information naturally. If results are thin, be \
 honest about it rather than making things up. Stay in character at all times.
-""".format(personality=PERSONALITY)
+"""
 
 
 class Orchestrator(BaseAgent):
@@ -92,6 +79,20 @@ class Orchestrator(BaseAgent):
         super().__init__()
         self.event_bus = EventBus()
 
+    # --- Prompt builders (read personality fresh from cache) -----------
+
+    @staticmethod
+    def _build_routing_prompt() -> str:
+        from broke import prompts
+        return prompts.personality() + _ROUTING_INSTRUCTIONS
+
+    @staticmethod
+    def _build_synthesis_prompt(results_text: str, query: str) -> str:
+        from broke import prompts
+        return prompts.personality() + _SYNTHESIS_INSTRUCTIONS.format(
+            results=results_text, query=query,
+        )
+
     async def run_stream(
         self, query: str, context: dict[str, Any] | None = None, *, debug: bool = False,
     ) -> AsyncIterator[dict[str, Any]]:
@@ -101,7 +102,12 @@ class Orchestrator(BaseAgent):
         plan = await self._plan_dispatch(query, context)
 
         if plan.get("direct_answer"):
-            yield {"type": "final", "content": plan["direct_answer"]}
+            yield {"type": "synthesis_start"}
+            full_text = ""
+            async for token in self._stream_direct(plan["direct_answer"]):
+                full_text += token
+                yield {"type": "token", "content": token}
+            yield {"type": "final", "content": full_text}
             return
 
         ack = plan.get("acknowledgment", "Let me look into that.")
@@ -149,16 +155,20 @@ class Orchestrator(BaseAgent):
                     "content": f"Still waiting on {', '.join(still)}...",
                 }
 
-        # --- Phase 4: Synthesise ---
-        final = await self._synthesise(query, collected, context)
-        yield {"type": "final", "content": final, "sources": [c[0] for c in collected]}
+        # --- Phase 4: Synthesise (streamed) ---
+        yield {"type": "synthesis_start"}
+        full_text = ""
+        async for token in self._synthesise_stream(query, collected, context):
+            full_text += token
+            yield {"type": "token", "content": token}
+        yield {"type": "final", "content": full_text, "sources": [c[0] for c in collected]}
 
     async def run(self, query: str, context: dict[str, Any] | None = None) -> str:
-        """Non-streaming fallback — collects all yields and returns the final."""
+        """Non-streaming fallback — collects the final content from the stream."""
         final = ""
         async for msg in self.run_stream(query, context):
             if msg["type"] == "final":
-                final = msg["content"]
+                final = msg.get("content", "")
         return final
 
     async def _plan_dispatch(
@@ -166,7 +176,7 @@ class Orchestrator(BaseAgent):
     ) -> dict[str, Any]:
         log.debug("[orchestrator] routing query: %s", query[:200])
         messages: list[dict[str, Any]] = [
-            {"role": "system", "content": ROUTING_PROMPT},
+            {"role": "system", "content": self._build_routing_prompt()},
         ]
         if context and context.get("history"):
             messages.extend(context["history"][-6:])
@@ -196,12 +206,15 @@ class Orchestrator(BaseAgent):
             log.debug("[orchestrator] routing decision: dispatch → %s", agents)
         return plan
 
-    async def _synthesise(
+    async def _synthesise_stream(
         self,
         query: str,
         results: list[tuple[str, str]],
         context: dict[str, Any] | None = None,
-    ) -> str:
+    ) -> AsyncIterator[str]:
+        """Streaming synthesis — yields tokens as they arrive."""
+        from broke.llm.provider import stream_completion
+
         for agent_name, result in results:
             log.debug(
                 "[orchestrator] specialist result from '%s': %s",
@@ -211,10 +224,9 @@ class Orchestrator(BaseAgent):
         results_text = "\n\n".join(
             f"[{agent_name}]:\n{result}" for agent_name, result in results
         )
-        prompt = SYNTHESIS_PROMPT.format(results=results_text, query=query)
 
         messages: list[dict[str, Any]] = [
-            {"role": "system", "content": prompt},
+            {"role": "system", "content": self._build_synthesis_prompt(results_text, query)},
         ]
         if context and context.get("history"):
             messages.extend(context["history"][-4:])
@@ -223,8 +235,10 @@ class Orchestrator(BaseAgent):
             "content": f"Synthesise a response to: {query}",
         })
 
-        log.debug("[orchestrator] synthesising from %d specialist results", len(results))
-        resp = await completion(messages, temperature=0.7)
-        final = resp["content"] or "I don't have a great answer for that one."
-        log.debug("[orchestrator] synthesis complete: %s", final[:300])
-        return final
+        log.debug("[orchestrator] streaming synthesis from %d specialist results", len(results))
+        async for token in stream_completion(messages, temperature=0.7):
+            yield token
+
+    async def _stream_direct(self, prefab_answer: str) -> AsyncIterator[str]:
+        """Yield a pre-fabricated direct answer through the token pipeline."""
+        yield prefab_answer

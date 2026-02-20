@@ -15,6 +15,10 @@ class BaseAgent:
 
     Subclasses set ``name``, ``description``, ``system_prompt``, and
     optionally override ``tools`` to equip the agent with capabilities.
+
+    The class-level ``system_prompt`` serves as the hardcoded default.
+    If a file exists at ``prompts/{name}.md`` it takes precedence (and
+    can be hot-reloaded at runtime via ``/reload``).
     """
 
     name: str = "base"
@@ -24,6 +28,11 @@ class BaseAgent:
 
     def __init__(self) -> None:
         self._tools: list[BaseTool] = []
+
+    def get_system_prompt(self) -> str:
+        """Return the effective system prompt (file override or class default)."""
+        from broke import prompts
+        return prompts.agent_prompt(self.name, self.system_prompt)
 
     @property
     def tools(self) -> list[BaseTool]:
@@ -78,7 +87,7 @@ class BaseAgent:
         log.debug("[%s] ── START ── query: %s", self.name, query[:200])
 
         messages: list[dict[str, Any]] = [
-            {"role": "system", "content": self.system_prompt},
+            {"role": "system", "content": self.get_system_prompt()},
         ]
         if context and context.get("history"):
             messages.extend(context["history"])
