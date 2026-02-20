@@ -5,163 +5,147 @@ import logging
 from typing import Any, AsyncIterator
 
 from broke.agents.base import BaseAgent
-from broke.events.bus import EventBus
-from broke.llm.provider import completion
+from broke.tools.call_agent import CallAgentTool
+from broke.tools.rag_query import RAGQueryTool
 
 log = logging.getLogger(__name__)
 
-# Templates are split from personality so personality can be hot-reloaded.
-# {personality} is injected at call time via _build_routing_prompt / _build_synthesis_prompt.
-
-_ROUTING_INSTRUCTIONS = """\
+_INSTRUCTIONS = """\
 
 ---
 
-## Routing Instructions
+## Instructions
 
-You are the routing brain of this system. Given the user's message, decide \
-which specialist agents should be called to answer it. You may call zero \
-agents (if you can handle it yourself), one, or multiple in parallel.
+You have direct access to Jonathan's knowledge base via the **rag_query** tool. \
+Use it to look up accurate information before answering questions about his \
+skills, experience, projects, and background. You can search specific \
+collections (resume, projects, skills, background) or all of them at once.
 
-Available specialists:
-- skills: Technical abilities, programming languages, frameworks, tools
-- experience: Work history, roles, achievements, career
-- projects: Things Jonathan has built, project details, tech stacks
-- culture: Work style, personality, values, team fit
+For tasks that go beyond simple retrieval, call a specialist agent:
+- **scheduling** — Check availability and arrange meetings with Jonathan.
+- **researcher** — Search the web for current or external information.
+- **deep_rag** — Thorough, multi-pass retrieval for complex questions that \
+need cross-referencing or exhaustive coverage.
 
-Respond with a JSON object (no markdown fences):
-{
-  "acknowledgment": "A brief, natural sentence acknowledging the user's question — stay in character per the personality guide above.",
-  "agents": [
-    {"agent": "<agent_name>", "query": "<reframed query for that specialist>"}
-  ],
-  "direct_answer": null
-}
-
-If you can answer directly without any specialists (e.g. greetings, meta \
-questions about yourself), set "agents" to [] and put your answer in \
-"direct_answer". Keep the personality guide in mind for direct answers too.
-"""
-
-_SYNTHESIS_INSTRUCTIONS = """\
-
----
-
-## Synthesis Instructions
-
-You've just received information from your specialist agents. Synthesize \
-their findings into a single, polished response for the user.
-
-Specialist results:
-{results}
-
-Original question: {query}
-
-Compose a cohesive, engaging response. Don't say "according to the skills \
-agent" — just weave the information naturally. If results are thin, be \
-honest about it rather than making things up. Stay in character at all times.
+Always query the knowledge base before making claims about Jonathan. \
+If the knowledge base doesn't have the answer, say so honestly.
 """
 
 
 class Orchestrator(BaseAgent):
-    """Async conversational orchestrator.
+    """Streaming ReAct orchestrator.
 
-    Unlike specialist agents that return a single string, the orchestrator
-    *yields* intermediate and final messages so the terminal can stream
-    them in real time.
+    Runs a tool-calling loop — queries RAG directly, calls specialist
+    agents when needed — and streams the final response token-by-token.
     """
 
     name = "orchestrator"
-    description = "The conversational orchestrator that routes queries to specialists."
-    system_prompt = ""  # Uses specialised prompts per phase
+    description = "The central agent that answers questions and delegates to specialists."
+    system_prompt = ""
+    max_iterations = 12
 
     def __init__(self) -> None:
         super().__init__()
-        self.event_bus = EventBus()
+        self.register_tool(RAGQueryTool())
+        self.register_tool(CallAgentTool())
 
-    # --- Prompt builders (read personality fresh from cache) -----------
-
-    @staticmethod
-    def _build_routing_prompt() -> str:
+    def _build_system_prompt(self) -> str:
         from broke import prompts
-        return prompts.personality() + _ROUTING_INSTRUCTIONS
-
-    @staticmethod
-    def _build_synthesis_prompt(results_text: str, query: str) -> str:
-        from broke import prompts
-        return prompts.personality() + _SYNTHESIS_INSTRUCTIONS.format(
-            results=results_text, query=query,
-        )
+        return prompts.personality() + _INSTRUCTIONS
 
     async def run_stream(
         self, query: str, context: dict[str, Any] | None = None, *, debug: bool = False,
     ) -> AsyncIterator[dict[str, Any]]:
-        """Yield message dicts: {"type": "ack"|"status"|"final", "content": str}."""
+        """Streaming ReAct loop. Yields event dicts for the terminal renderer."""
+        from broke.llm.provider import stream_completion_with_tools
 
-        # --- Phase 1: Route ---
-        plan = await self._plan_dispatch(query, context)
+        messages: list[dict[str, Any]] = [
+            {"role": "system", "content": self._build_system_prompt()},
+        ]
+        if context and context.get("history"):
+            messages.extend(context["history"][-6:])
+        messages.append({"role": "user", "content": query})
 
-        if plan.get("direct_answer"):
-            yield {"type": "synthesis_start"}
-            full_text = ""
-            async for token in self._stream_direct(plan["direct_answer"]):
-                full_text += token
-                yield {"type": "token", "content": token}
-            yield {"type": "final", "content": full_text}
-            return
+        for iteration in range(self.max_iterations):
+            log.debug("[orchestrator] iteration %d", iteration + 1)
 
-        ack = plan.get("acknowledgment", "Let me look into that.")
-        yield {"type": "ack", "content": ack}
+            full_content = ""
+            final_event: dict[str, Any] | None = None
 
-        tasks = plan.get("agents", [])
-        if not tasks:
-            yield {"type": "final", "content": ack}
-            return
+            async for event in stream_completion_with_tools(
+                messages, tools=self._tool_schemas()
+            ):
+                if event["type"] == "token":
+                    full_content += event["content"]
+                    yield {"type": "token", "content": event["content"]}
+                elif event["type"] in ("done", "tool_calls"):
+                    final_event = event
 
-        # --- Phase 2: Dispatch ---
-        if debug:
-            for t in tasks:
-                yield {
-                    "type": "agent_input",
-                    "agent": t["agent"],
-                    "query": t["query"],
+            if final_event is None:
+                yield {"type": "final", "content": full_content or ""}
+                return
+
+            if final_event["type"] == "done":
+                yield {"type": "final", "content": final_event["content"]}
+                return
+
+            # --- Tool calls: execute and loop ---
+            tool_calls = final_event["calls"]
+            tool_names = [tc["name"] for tc in tool_calls]
+            log.debug("[orchestrator] tool calls: %s", tool_names)
+
+            yield {
+                "type": "status",
+                "content": self._describe_tool_calls(tool_calls),
+            }
+
+            assistant_msg: dict[str, Any] = {
+                "role": "assistant",
+                "content": final_event.get("content"),
+            }
+            assistant_msg["tool_calls"] = [
+                {
+                    "id": tc["id"],
+                    "type": "function",
+                    "function": {
+                        "name": tc["name"],
+                        "arguments": json.dumps(tc["arguments"]),
+                    },
                 }
-
-        pending = await self.event_bus.dispatch_all(tasks)
-        collected: list[tuple[str, str]] = []
-
-        yield {
-            "type": "status",
-            "content": f"Checking with {', '.join(t['agent'] for t in tasks)}...",
-        }
-
-        # --- Phase 3: Collect results ---
-        while pending:
-            done, pending = await self.event_bus.wait_next(pending)
-            collected.extend(done)
+                for tc in tool_calls
+            ]
+            messages.append(assistant_msg)
 
             if debug:
-                for agent_name, result in done:
+                for tc in tool_calls:
+                    args_str = json.dumps(tc["arguments"], default=str)
+                    if len(args_str) > 200:
+                        args_str = args_str[:200] + "..."
                     yield {
-                        "type": "agent_output",
-                        "agent": agent_name,
-                        "content": result,
+                        "type": "agent_tool_call",
+                        "agent": "orchestrator",
+                        "tool": tc["name"],
+                        "args": tc["arguments"],
                     }
 
-            if pending:
-                still = [at.agent_name for at in pending]
-                yield {
-                    "type": "status",
-                    "content": f"Still waiting on {', '.join(still)}...",
-                }
+            tool_results = await self._execute_tool_calls(tool_calls)
+            messages.extend(tool_results)
 
-        # --- Phase 4: Synthesise (streamed) ---
-        yield {"type": "synthesis_start"}
-        full_text = ""
-        async for token in self._synthesise_stream(query, collected, context):
-            full_text += token
-            yield {"type": "token", "content": token}
-        yield {"type": "final", "content": full_text, "sources": [c[0] for c in collected]}
+            if debug:
+                for tr in tool_results:
+                    content = tr.get("content", "")
+                    if len(content) > 300:
+                        content = content[:300] + "..."
+                    yield {
+                        "type": "agent_tool_result",
+                        "agent": "orchestrator",
+                        "content": content,
+                    }
+
+        yield {
+            "type": "final",
+            "content": "i hit my reasoning limit on this one — try asking in a different way?",
+        }
 
     async def run(self, query: str, context: dict[str, Any] | None = None) -> str:
         """Non-streaming fallback — collects the final content from the stream."""
@@ -171,74 +155,17 @@ class Orchestrator(BaseAgent):
                 final = msg.get("content", "")
         return final
 
-    async def _plan_dispatch(
-        self, query: str, context: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
-        log.debug("[orchestrator] routing query: %s", query[:200])
-        messages: list[dict[str, Any]] = [
-            {"role": "system", "content": self._build_routing_prompt()},
-        ]
-        if context and context.get("history"):
-            messages.extend(context["history"][-6:])
-        messages.append({"role": "user", "content": query})
-
-        resp = await completion(messages, temperature=0.3)
-        raw = resp["content"] or "{}"
-
-        raw = raw.strip()
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0]
-
-        try:
-            plan = json.loads(raw)
-        except json.JSONDecodeError:
-            log.warning("Orchestrator routing returned invalid JSON: %s", raw[:200])
-            return {
-                "acknowledgment": "Hmm, let me think about that...",
-                "agents": [{"agent": "skills", "query": query}],
-                "direct_answer": None,
-            }
-
-        agents = [t["agent"] for t in plan.get("agents", [])]
-        if plan.get("direct_answer"):
-            log.debug("[orchestrator] routing decision: direct answer")
-        else:
-            log.debug("[orchestrator] routing decision: dispatch → %s", agents)
-        return plan
-
-    async def _synthesise_stream(
-        self,
-        query: str,
-        results: list[tuple[str, str]],
-        context: dict[str, Any] | None = None,
-    ) -> AsyncIterator[str]:
-        """Streaming synthesis — yields tokens as they arrive."""
-        from broke.llm.provider import stream_completion
-
-        for agent_name, result in results:
-            log.debug(
-                "[orchestrator] specialist result from '%s': %s",
-                agent_name, result[:300],
-            )
-
-        results_text = "\n\n".join(
-            f"[{agent_name}]:\n{result}" for agent_name, result in results
-        )
-
-        messages: list[dict[str, Any]] = [
-            {"role": "system", "content": self._build_synthesis_prompt(results_text, query)},
-        ]
-        if context and context.get("history"):
-            messages.extend(context["history"][-4:])
-        messages.append({
-            "role": "user",
-            "content": f"Synthesise a response to: {query}",
-        })
-
-        log.debug("[orchestrator] streaming synthesis from %d specialist results", len(results))
-        async for token in stream_completion(messages, temperature=0.7):
-            yield token
-
-    async def _stream_direct(self, prefab_answer: str) -> AsyncIterator[str]:
-        """Yield a pre-fabricated direct answer through the token pipeline."""
-        yield prefab_answer
+    @staticmethod
+    def _describe_tool_calls(tool_calls: list[dict[str, Any]]) -> str:
+        parts = []
+        for tc in tool_calls:
+            name = tc["name"]
+            if name == "rag_query":
+                coll = tc.get("arguments", {}).get("collection", "all")
+                parts.append(f"searching knowledge base ({coll})")
+            elif name == "call_agent":
+                agent = tc.get("arguments", {}).get("agent_name", "?")
+                parts.append(f"talking to {agent}")
+            else:
+                parts.append(name)
+        return ", ".join(parts) + "..."

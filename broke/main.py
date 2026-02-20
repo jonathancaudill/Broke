@@ -14,12 +14,11 @@ from rich.panel import Panel
 from rich.text import Text
 
 from broke import prompts
-from broke.agents.culture import CultureFitAgent
-from broke.agents.experience import ExperienceAgent
+from broke.agents.deep_rag import DeepRAGAgent
 from broke.agents.orchestrator import Orchestrator
-from broke.agents.projects import ProjectsAgent
 from broke.agents.registry import registry
-from broke.agents.skills import SkillsAgent
+from broke.agents.researcher import ResearcherAgent
+from broke.agents.scheduling import SchedulingAgent
 from broke.config import get_settings
 from broke.knowledge.ingest import ingest_all
 from broke.memory.conversation import ConversationMemory
@@ -37,12 +36,12 @@ def _setup_logging(debug: bool) -> None:
 
 def _register_agents() -> Orchestrator:
     """Instantiate and register all agents. Returns the orchestrator."""
-    skills = SkillsAgent()
-    experience = ExperienceAgent()
-    projects = ProjectsAgent()
-    culture = CultureFitAgent()
-
-    for agent in [skills, experience, projects, culture]:
+    specialists = [
+        SchedulingAgent(),
+        ResearcherAgent(),
+        DeepRAGAgent(),
+    ]
+    for agent in specialists:
         registry.register(agent)
 
     orchestrator = Orchestrator()
@@ -59,8 +58,7 @@ def _print_banner() -> None:
     console.print(
         "[dim]Commands:\n"
         "  /ask <agent> <query>  Run a single agent in isolation\n"
-        "  /chat <query>         Talk to the orchestrator directly (no tools/agents)\n"
-        "  /route <query>        Show routing decision only\n"
+        "  /chat <query>         Talk to the LLM directly (no tools/agents)\n"
         "  /reload               Hot-reload all prompts from disk\n"
         "  /prompt [agent]       Show system prompt (all or one)\n"
         "  /thinking [level]     Set reasoning effort: minimal / low / medium / high\n"
@@ -117,14 +115,8 @@ async def _handle_message(
                 thinking_source = None
 
         # --- Standard orchestrator events ---
-        elif msg_type == "ack":
-            console.print(f"\n[cyan]{msg['content']}[/cyan]")
-
         elif msg_type == "status":
             console.print(f"  [dim italic]{msg['content']}[/dim italic]")
-
-        elif msg_type == "synthesis_start":
-            console.print()
 
         elif msg_type == "token":
             console.file.write(msg["content"])
@@ -256,23 +248,6 @@ async def _handle_chat(query: str, debug: bool) -> None:
     console.print(f"\n\n[dim]({elapsed:.1f}s)[/dim]")
 
 
-async def _handle_route(orchestrator: Orchestrator, query: str, debug: bool) -> None:
-    """Run only the orchestrator routing phase and display the plan."""
-    console.print("\n[bold cyan]─── routing decision ───[/bold cyan]\n")
-    t0 = time.perf_counter()
-    try:
-        plan = await orchestrator._plan_dispatch(query)
-    except Exception as exc:
-        console.print(f"[red]Error: {exc}[/red]")
-        if debug:
-            console.print_exception()
-        return
-    elapsed = time.perf_counter() - t0
-
-    console.print(json.dumps(plan, indent=2))
-    console.print(f"\n[dim]({elapsed:.1f}s)[/dim]")
-
-
 def _handle_prompt_cmd(arg: str) -> None:
     """Show the effective system prompt for one or all agents."""
     if arg:
@@ -281,22 +256,23 @@ def _handle_prompt_cmd(arg: str) -> None:
         except KeyError:
             console.print(f"[red]Unknown agent: {arg}[/red]")
             return
-        if arg == "orchestrator":
-            console.print(f"\n[bold cyan]{arg}[/bold cyan] [dim](routing prompt)[/dim]")
-            console.print(Panel(Orchestrator._build_routing_prompt(), border_style="dim"))
-        else:
-            console.print(f"\n[bold cyan]{arg}[/bold cyan]")
-            console.print(Panel(agent.get_system_prompt(), border_style="dim"))
+        console.print(f"\n[bold cyan]{arg}[/bold cyan]")
+        prompt_text = (
+            agent._build_system_prompt()
+            if arg == "orchestrator"
+            else agent.get_system_prompt()
+        )
+        console.print(Panel(prompt_text, border_style="dim"))
     else:
         for info in registry.list_agents():
             name = info["name"]
             agent = registry.get(name)
-            if name == "orchestrator":
-                console.print(f"\n[bold cyan]{name}[/bold cyan] [dim](routing prompt)[/dim]")
-                prompt_text = Orchestrator._build_routing_prompt()
-            else:
-                console.print(f"\n[bold cyan]{name}[/bold cyan]")
-                prompt_text = agent.get_system_prompt()
+            console.print(f"\n[bold cyan]{name}[/bold cyan]")
+            prompt_text = (
+                agent._build_system_prompt()
+                if name == "orchestrator"
+                else agent.get_system_prompt()
+            )
             if len(prompt_text) > 500:
                 prompt_text = prompt_text[:500] + "\n..."
             console.print(Panel(prompt_text, border_style="dim"))
@@ -397,20 +373,6 @@ async def _repl(orchestrator: Orchestrator, debug: bool) -> None:
             agent_name, query = parts
             try:
                 await _handle_ask(agent_name.lower(), query, debug)
-            except Exception as exc:
-                console.print(f"\n[red]Error: {exc}[/red]")
-                if debug:
-                    console.print_exception()
-            console.print()
-            continue
-
-        if low.startswith("/route "):
-            query = user_input[7:].strip()
-            if not query:
-                console.print("[dim]Usage: /route <query>[/dim]")
-                continue
-            try:
-                await _handle_route(orchestrator, query, debug)
             except Exception as exc:
                 console.print(f"\n[red]Error: {exc}[/red]")
                 if debug:
