@@ -62,24 +62,44 @@ body {
   position: relative;
 }
 
-.status-bar {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 44px;
-  padding: 0 24px;
-  padding-top: env(safe-area-inset-top, 0);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  color: #fff;
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  background: transparent;
-  z-index: 10;
-  pointer-events: none;
+@media (max-width: 768px) {
+  .phone-frame {
+    max-width: none;
+    max-height: none;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+  }
+
+  .status-bar {
+    display: none;
+  }
+
+  .chat-app {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+}
+
+@media (min-width: 769px) {
+  .status-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 44px;
+    padding: 0 24px;
+    padding-top: env(safe-area-inset-top, 0);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: #fff;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    background: transparent;
+    z-index: 10;
+    pointer-events: none;
+  }
 }
 
 .status-bar-time {
@@ -752,6 +772,6 @@ Retrieved 2026-02-20, License - CC BY-SA 4.0
   }
 
   .chat-messages {
-    padding: 8px 12px;
+    padding: 100px 12px calc(60px + env(safe-area-inset-bottom, 20px)) 12px;
   }
 }
