@@ -1,6 +1,6 @@
 import { streamText } from 'ai'
 import { model } from '@/lib/server/ai'
-import { orchestratorPrompt } from '@/lib/server/prompts'
+import { getOrchestratorPrompt } from '@/lib/server/prompts'
 import { ragQueryTool } from '@/lib/server/tools/rag-query'
 import { createCallAgentTool } from '@/lib/server/tools/call-agent'
 
@@ -12,7 +12,7 @@ export const orchestratorTools = {
 export function createSingleStep(messages: { role: string; content: string | unknown[] }[]) {
   return streamText({
     model: model(),
-    system: orchestratorPrompt,
+    system: getOrchestratorPrompt(),
     messages: messages as never,
     tools: orchestratorTools
   })

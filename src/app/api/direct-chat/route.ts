@@ -1,6 +1,6 @@
 import { streamText } from 'ai'
 import { model } from '@/lib/server/ai'
-import { personality } from '@/lib/server/prompts'
+import { getPersonality } from '@/lib/server/prompts'
 
 export const maxDuration = 60
 
@@ -10,7 +10,7 @@ export async function POST(request: Request) {
 
   const result = streamText({
     model: model(),
-    system: personality,
+    system: getPersonality(),
     prompt: query
   })
 
