@@ -1,48 +1,47 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { embed } from 'ai';
-import { embeddingModel } from '$lib/server/ai';
-import { env } from '$env/dynamic/private';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { embed } from 'ai'
+import { embeddingModel } from '@/lib/server/ai'
 
-let client: SupabaseClient | null = null;
+let client: SupabaseClient | null = null
 
 function getClient(): SupabaseClient {
-	if (!client) {
-		client = createClient(env.SUPABASE_URL!, env.SUPABASE_SERVICE_ROLE_KEY!);
-	}
-	return client;
+  if (!client) {
+    client = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
+  }
+  return client
 }
 
 export interface DocumentMatch {
-	id: string;
-	content: string;
-	collection: string;
-	section: string | null;
-	source: string | null;
-	similarity: number;
+  id: string
+  content: string
+  collection: string
+  section: string | null
+  source: string | null
+  similarity: number
 }
 
-const VALID_COLLECTIONS = new Set(['resume', 'projects', 'skills', 'background']);
+const VALID_COLLECTIONS = new Set(['resume', 'projects', 'skills', 'background'])
 
 export async function searchDocuments(
-	query: string,
-	collection: string = 'all',
-	count: number = 5
+  query: string,
+  collection: string = 'all',
+  count: number = 5
 ): Promise<DocumentMatch[]> {
-	const normalized = collection.toLowerCase().trim();
-	const filterCollection =
-		normalized === 'all' || !VALID_COLLECTIONS.has(normalized) ? null : normalized;
+  const normalized = collection.toLowerCase().trim()
+  const filterCollection =
+    normalized === 'all' || !VALID_COLLECTIONS.has(normalized) ? null : normalized
 
-	const { embedding } = await embed({
-		model: embeddingModel(),
-		value: query
-	});
+  const { embedding } = await embed({
+    model: embeddingModel(),
+    value: query
+  })
 
-	const { data, error } = await getClient().rpc('match_documents', {
-		query_embedding: embedding,
-		match_count: count,
-		filter_collection: filterCollection
-	});
+  const { data, error } = await getClient().rpc('match_documents', {
+    query_embedding: embedding,
+    match_count: count,
+    filter_collection: filterCollection
+  })
 
-	if (error) throw new Error(`Supabase search failed: ${error.message}`);
-	return (data as DocumentMatch[]) ?? [];
+  if (error) throw new Error(`Supabase search failed: ${error.message}`)
+  return (data as DocumentMatch[]) ?? []
 }
