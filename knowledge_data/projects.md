@@ -76,7 +76,7 @@ House music DJ specializing in deep house and old school house styles. Performed
 # GSAI (Goldman Sachs AI) Project Prototype
 
 ## Overview
-Developed AI prototype for Goldman Sachs during collaborative project.
+Developed AI prototype for Goldman Sachs during collaborative project. Project was received well, then effectively implemented inside the firm 6 months later. Essentially, Jonathan's idea got stolen.
 
 ## Technologies Used
 - Python
@@ -85,7 +85,6 @@ Developed AI prototype for Goldman Sachs during collaborative project.
 - Presentation technologies
 
 ## Key Features
-- Financial data processing
 - Predictive analytics
 - User-friendly interface for non-technical users
 - Compliance with financial regulations

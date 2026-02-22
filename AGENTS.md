@@ -151,7 +151,7 @@ Do not add comments to code unless explicitly requested. Code should be self-doc
 
 ## Environment Variables
 
-Required (see `.env.example`): `OPENAI_API_KEY`, `OPENAI_MODEL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+Required (see `.env.example`): `OPENAI_API_KEY`, `OPENAI_MODEL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`. Optional: `TAVILY_API_KEY` (enables web search for the researcher agent).
 
 Access via `process.env`:
 

@@ -40,9 +40,5 @@ Mentone, Alabama
 Bachelor of Arts in English, 2021 - 2025
 - National Merit Finalist (2020)
 - Focused on technical writing and communications
-- Supplemented curriculum with self-taught programming and data analysis skills
 
-## Professional Development
-- Self-taught programming skills in Python, JavaScript, and SQL
-- Completed courses in data analysis, ML pipelines, and LangGraph
-- Developed expertise in building and fine-tuning AI agents
+d
