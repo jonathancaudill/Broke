@@ -6,7 +6,7 @@ import ChatMessage from '@/components/ChatMessage'
 import ChatInput from '@/components/ChatInput'
 import LiquidGlassVars from '@/components/LiquidGlassVars'
 import StatusBar from '@/components/StatusBar'
-import { ChevronLeftCircleIcon } from '@/components/Icons'
+import { GitHubIcon } from '@/components/Icons'
 import type { Message, ToolCall } from '@/lib/types'
 
 const MEMORY_WINDOW = 20
@@ -375,9 +375,15 @@ export default function Home() {
 
       <header className="chat-header">
         <div className="header-top">
-          <button className="back-button icon-button" aria-label="Back">
-            <ChevronLeftCircleIcon size={36} />
-          </button>
+          <a
+            href="https://github.com/jonathancaudill/Broke"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="back-button icon-button"
+            aria-label="GitHub"
+          >
+            <GitHubIcon size={36} />
+          </a>
           <div className="header-profile">
             <img src="/logo.png" alt="Broke" className="header-avatar" />
             <span className="header-name-badge">Broke 💸</span>
