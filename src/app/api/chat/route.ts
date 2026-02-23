@@ -1,4 +1,5 @@
 import { createSingleStep } from '@/lib/server/orchestrator'
+import { logQa } from '@/lib/server/qa-log'
 
 export const maxDuration = 60
 
@@ -12,11 +13,19 @@ export async function POST(request: Request) {
 
   const encoder = new TextEncoder()
   const currentMessages: { role: string; content: string | unknown[] }[] = [...messages]
+  const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user')
+  const question =
+    typeof lastUserMessage?.content === 'string'
+      ? lastUserMessage.content
+      : Array.isArray(lastUserMessage?.content)
+        ? (lastUserMessage.content as { text?: string }[]).map((c) => c.text ?? '').join('')
+        : ''
 
   const stream = new ReadableStream({
     async start(controller) {
       const send = (event: Record<string, unknown>) =>
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
+      let fullAnswer = ''
 
       try {
         for (let step = 0; step < MAX_STEPS; step++) {
@@ -81,10 +90,13 @@ export async function POST(request: Request) {
             }
           }
 
+          fullAnswer += stepText
+
           if (toolCalls.length === 0) {
             console.log(
               `[api/chat] step ${step + 1} done — no tool calls, final answer (${stepText.length} chars)`
             )
+            if (question) await logQa({ source: 'chat', question, answer: fullAnswer || null })
             break
           }
 

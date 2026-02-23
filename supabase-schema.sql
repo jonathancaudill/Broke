@@ -46,3 +46,17 @@ begin
   limit match_count;
 end;
 $$;
+
+-- Q&A logging table (run in Supabase SQL editor if you already have documents set up).
+
+create table if not exists qa_log (
+  id uuid primary key default gen_random_uuid(),
+  source text not null check (source in ('chat', 'ask', 'direct-chat')),
+  question text not null,
+  answer text,
+  agent text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists qa_log_created_at_idx on qa_log (created_at desc);
+create index if not exists qa_log_source_idx on qa_log (source);

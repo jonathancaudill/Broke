@@ -1,6 +1,7 @@
 import { streamText } from 'ai'
 import { model } from '@/lib/server/ai'
 import { getPersonality } from '@/lib/server/prompts'
+import { logQa } from '@/lib/server/qa-log'
 
 export const maxDuration = 60
 
@@ -16,12 +17,14 @@ export async function POST(request: Request) {
 
   const encoder = new TextEncoder()
   let tokenCount = 0
+  let fullText = ''
 
   const stream = new ReadableStream({
     async start(controller) {
       try {
         for await (const chunk of result.textStream) {
           tokenCount++
+          fullText += chunk
           controller.enqueue(
             encoder.encode(`data: ${JSON.stringify({ type: 'text-delta', textDelta: chunk })}\n\n`)
           )
@@ -33,6 +36,7 @@ export async function POST(request: Request) {
           encoder.encode(`data: ${JSON.stringify({ type: 'error', message: String(err) })}\n\n`)
         )
       } finally {
+        await logQa({ source: 'direct-chat', question: query, answer: fullText || null })
         controller.enqueue(encoder.encode('data: [DONE]\n\n'))
         controller.close()
       }
