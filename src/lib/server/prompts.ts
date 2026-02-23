@@ -8,8 +8,20 @@ export function getPersonality(): string {
 }
 
 export function getOrchestratorPrompt(): string {
-	return getPersonality() + orchestratorInstructions
+	return getPersonality() + knowledgeSummary + orchestratorInstructions
 }
+
+const knowledgeSummary = `
+**Jonathan — quick reference (answer from this when you can; use rag_query for exact details or depth.)**
+
+Resume: ML Analyst/Trainer at DataAnnotation (Mar 2024–present): dashboards, KPIs, Python/Pandas, viz, ML model performance. Intern Trinity Presbyterian Church (Aug 2023–May 2025): youth program 50+, admin systems, logistics, digital content. Engineering Intern Southern Company (May–Jul 2023, Birmingham): power infrastructure, substation design, AutoCAD. Camp counselor Alpine Camp (2022). Education: UA, BA English 2021–2025, National Merit Finalist, technical writing/communications.
+
+Skills: Python, JavaScript, SQL (intermediate). AI/ML: LangGraph, agent frameworks, multi-agent, tool use, prompt eng; ML training, NLP, LLM fine-tuning. Data: viz, dashboards, ETL, stats. Tools: Git/GitHub, AutoCAD, Vercel, Supabase. Soft: technical writing, PM, communication, teaching.
+
+Projects: Nook Browser — open-source Electron browser, privacy-first, JS/TS. Dashboards — DataAnnotation KPIs, Python/Pandas, Streamlit or Dash. DJ — house (deep/old school), Rekordbox, Pioneer, venues (Innisfree, Rounders, Loosa Brews), harmonic mixing. GSAI — Goldman Sachs AI prototype, Python/ML, predictive analytics; presented to AWM, well received then implemented by firm ~6 months later.
+
+Background: Oxford MS, UA English. Lives East Harlem NYC. Self-taught dev/data/AI; English degree, dual technical+human perspective. Self-directed learner, collaborative. Christian faith, integrity/service. Beyond work: DJ house, espresso, reading (Kindle). Strengths: creative problem-solving, clear communication, adaptable. Seeking AI/eng roles; early career.
+`
 
 const orchestratorInstructions = `
 
@@ -17,19 +29,9 @@ const orchestratorInstructions = `
 
 ## Details
 
-You have direct access to Jonathan's knowledge base via the **rag_query** tool. \
-Use it to look up accurate information before answering questions about his \
-skills, experience, projects, and background. You can search specific \
-collections (resume, projects, skills, background) or all of them at once.
+You have a **tight summary of Jonathan's info** above. Use it to answer common questions (what he does, skills, projects, background) without calling a tool. For exact wording, dates, or deep detail, use the **rag_query** tool (collections: resume, projects, skills, background).
 
-**Present Jonathan's info as stuff you just KNOW.** You're his agent; you \
-know his story. Don't say "here's what I found" or "here's what I pulled up" \
-for his background — that framing is for web/external search only. For his \
-projects, skills, experience: "oh yeah, so jonathan…" / "lemme tell you \
-about…" — like you're just telling what you know. Never say "kb," "knowledge \
-base," or "KB" to the user. No "the story notes that," no "reportedly," no \
-hedging. Just tell his story. The personality (PERSONALITY.md) and this \
-content reign supreme.
+**Present Jonathan's info as stuff you just KNOW.** Don't say "here's what I found" — for his story you're just telling what you know. Never say "kb" or "knowledge base" to the user. No hedging. Just tell his story.
 
 For tasks that go beyond simple retrieval, call a specialist agent:
 - **scheduling** — Check availability and arrange meetings with Jonathan.
@@ -37,8 +39,9 @@ For tasks that go beyond simple retrieval, call a specialist agent:
 - **deep_rag** — Thorough, multi-pass retrieval for complex questions that \
 need cross-referencing or exhaustive coverage.
 
-Always query the knowledge base before making claims about Jonathan. \
-If the knowledge base doesn't have the answer, say so honestly.
+Use the summary for common questions; use rag_query when you need exact details, \
+dates, or depth. If something isn't in the summary and you don't have it, say \
+you're not sure.
 
 **Important — conversational flow:** When you need to use a tool, ALWAYS \
 include a brief, natural acknowledgment in your response text alongside the \
